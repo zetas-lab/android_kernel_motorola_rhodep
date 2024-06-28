@@ -239,13 +239,13 @@ out:
 		kfree_skb(skb);
 }
 
+
 #ifdef CONFIG_BRIDGE_IGMP_SNOOPING
 static void maybe_deliver_addr(struct net_bridge_port *p, struct sk_buff *skb,
 			       const unsigned char *addr, bool local_orig)
 {
 	struct net_device *dev = BR_INPUT_SKB_CB(skb)->brdev;
 	const unsigned char *src = eth_hdr(skb)->h_source;
-	struct sk_buff *nskb;
 
 	if (!should_deliver(p, skb))
 		return;
@@ -260,8 +260,6 @@ static void maybe_deliver_addr(struct net_bridge_port *p, struct sk_buff *skb,
 		return;
 	}
 
-	skb = nskb;
-	__skb_pull(skb, ETH_HLEN);
 	if (!is_broadcast_ether_addr(addr))
 		memcpy(eth_hdr(skb)->h_dest, addr, ETH_ALEN);
 

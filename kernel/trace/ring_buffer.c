@@ -581,19 +581,8 @@ static void rb_wake_up_waiters(struct irq_work *work)
 
 	wake_up_all(&rbwork->waiters);
 	if (rbwork->full_waiters_pending || rbwork->wakeup_full) {
-		/* Only cpu_buffer sets the above flags */
-		struct ring_buffer_per_cpu *cpu_buffer =
-			container_of(rbwork, struct ring_buffer_per_cpu, irq_work);
-
-		/* Called from interrupt context */
-		raw_spin_lock(&cpu_buffer->reader_lock);
 		rbwork->wakeup_full = false;
 		rbwork->full_waiters_pending = false;
-
-		/* Waking up all waiters, they will reset the shortest full */
-		cpu_buffer->shortest_full = 0;
-		raw_spin_unlock(&cpu_buffer->reader_lock);
-
 		wake_up_all(&rbwork->full_waiters);
 	}
 }
@@ -723,16 +712,16 @@ __poll_t ring_buffer_poll_wait(struct ring_buffer *buffer, int cpu,
 			  struct file *filp, poll_table *poll_table)
 {
 	struct ring_buffer_per_cpu *cpu_buffer;
-	struct rb_irq_work *rbwork;
+	struct rb_irq_work *work;
 
 	if (cpu == RING_BUFFER_ALL_CPUS)
 		work = &buffer->irq_work;
 	else {
 		if (!cpumask_test_cpu(cpu, buffer->cpumask))
-			return EPOLLERR;
+			return -EINVAL;
 
 		cpu_buffer = buffer->buffers[cpu];
-		rbwork = &cpu_buffer->irq_work;
+		work = &cpu_buffer->irq_work;
 	}
 
 	poll_wait(filp, &work->waiters, poll_table);
@@ -1402,8 +1391,6 @@ static void rb_free_cpu_buffer(struct ring_buffer_per_cpu *cpu_buffer)
 		bpage = list_entry(head, struct buffer_page, list);
 		free_buffer_page(bpage);
 	}
-
-	free_page((unsigned long)cpu_buffer->free_page);
 
 	kfree(cpu_buffer);
 }
@@ -2970,12 +2957,6 @@ rb_reserve_next_event(struct ring_buffer *buffer,
 	struct rb_event_info info;
 	int nr_loops = 0;
 	u64 diff;
-
-	/* ring buffer does cmpxchg, make sure it is safe in NMI context */
-	if (!IS_ENABLED(CONFIG_ARCH_HAVE_NMI_SAFE_CMPXCHG) &&
-	    (unlikely(in_nmi()))) {
-		return NULL;
-	}
 
 	rb_start_commit(cpu_buffer);
 
